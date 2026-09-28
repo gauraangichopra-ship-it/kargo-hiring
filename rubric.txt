@@ -1,0 +1,149 @@
+KARGO HIRING RUBRIC - Product Manager (PM) and Senior Product Manager (SPM)
+Source: patterns in the 8 past hire profiles and their performance ratings.
+The job descriptions were used only to understand what the roles involve.
+
+=====================================================================
+PATTERNS FROM THE HIRE PROFILES
+=====================================================================
+Exceeds: Rohan Desai, Sunita Krishnamurthy, Aditya Shetty, Meghna Tiwari, Lavanya Iyer
+Meets:   Vikram Nair, Rahul Bose
+Below:   Preetham Rao
+
+Pattern 1 - They handled the workflow with their own hands before building,
+selling or supporting software for it, and their later work fixes that pain.
+  Seen in all 5 Exceeds hires. Rohan went from 180+ shipments a month, to an
+  Excel tracker, to a freight tracking platform. Lavanya went from managing
+  exceptions on 500+ live shipments to PM for freight visibility. Meghna
+  cleared documentation errors and customs holds; Sunita handled 200+
+  shipments of documentation a month; Aditya dealt with berth windows and
+  detention disputes at JNPT.
+  Missing in Vikram and Rahul. Preetham connected to 3PL APIs but never
+  handled a shipment himself.
+
+Pattern 2 - They spotted a broken process nobody gave them, built a rough fix
+fast, and other people took it up without being told to.
+  Seen in all 5 Exceeds hires. Rohan's Excel tracker was adopted by a
+  12-person team in 2 weeks. Sunita rebuilt the documentation workflow over
+  a weekend and the team kept it. Lavanya's Excel dashboard spread to 2
+  other regional teams. Meghna's onboarding checklist became the CS team
+  standard. Aditya's lost-deal write-up became a team practice.
+  Weak in Vikram and Rahul, whose templates and programmes were part of
+  the job they were hired for. Preetham's dashboard spread to no one.
+
+Pattern 3 - When something broke, they stepped in themselves, kept the damage
+away from the customer, and wrote down what went wrong.
+  Seen in all 5 Exceeds hires. Meghna worked through the night on a customs
+  hold "before the client became aware". Sunita absorbed a vendor change
+  with "no disruption". Rohan migrated a data vendor "with no data loss".
+  Lavanya wrote the outage post-mortem. Aditya wrote up the root cause of
+  a lost deal.
+  Missing in Vikram and Rahul, who list only wins. Preetham's incident work
+  was an assigned on-call rotation, and he wrote nothing up.
+
+=====================================================================
+SCORING
+=====================================================================
+Score each criterion 0 to 5:
+  5 = specific evidence (a named task, number or result) that meets every
+      part of the description
+  3 = evidence that meets part of the description
+  0 = no evidence
+Final score = sum of (score x weight) / 5, giving a result out of 100.
+Quote the CV line behind every score.
+
+=====================================================================
+PRODUCT MANAGER RUBRIC
+=====================================================================
+
+Criterion name: Did the work before building for it
+What a strong candidate looks like: The CV names shipment-level or
+operations tasks the person did personally (documents prepared, holds
+cleared, carriers scheduled, exceptions resolved) with a volume attached,
+and their later work visibly fixes a problem from that period. Working at a
+logistics company, selling to logistics customers, or connecting to
+logistics systems does not count unless they did the work themselves.
+Weight: 30%
+
+Criterion name: Fixed it before anyone asked
+What a strong candidate looks like: The CV says what was broken, shows
+that nobody assigned it to them, and describes a rough working fix they
+built quickly (a spreadsheet, checklist, or weekend prototype). Work that
+was already their job or part of a planned project does not count.
+Weight: 20%
+
+Criterion name: Others took it up unasked
+What a strong candidate looks like: Something the person made was adopted
+by other people without an instruction from above, and the CV names who or
+how many (e.g. "adopted by the 12-member team within two weeks"). Scores 3
+at most if only the person or the team they manage used it.
+Weight: 20%
+
+Criterion name: Took the hit so the customer didn't
+What a strong candidate looks like: The CV describes a specific moment
+when something broke (a hold, outage, vendor change or lost deal), what
+the person did right then, and a result stated from the customer's side
+("no disruption", "before the client became aware", "no data loss").
+Scores 3 at most for an assigned on-call rotation with no single incident
+described.
+Weight: 20%
+
+Criterion name: Wrote down what went wrong
+What a strong candidate looks like: The person wrote something about a
+failure (a post-mortem, root-cause note, bug report, or customer-facing
+incident note) and the CV says what changed because of it. A CV that lists
+only wins scores 0.
+Weight: 10%
+
+PM total: 100%
+
+=====================================================================
+SENIOR PRODUCT MANAGER RUBRIC
+(same criteria, higher bar on how independently the person operated)
+=====================================================================
+
+Criterion name: Did the work before building for it
+What a strong candidate looks like: Everything required at PM level,
+plus the same pain shows up again in more than one later role or product,
+at a bigger scope each time. Scores 3 at most for a single operations
+stint with no link to later work.
+Weight: 25%
+
+Criterion name: Fixed it before anyone asked
+What a strong candidate looks like: Everything required at PM level,
+plus the person started and finished the fix alone, with no manager, team
+or sponsor, and the CV says so ("independently redesigned", "built over a
+weekend"). Scores 3 at most for a fix built with help or a sponsor.
+Weight: 15%
+
+Criterion name: Others took it up unasked
+What a strong candidate looks like: What the person made spread beyond
+their own team and became the standard way of working ("retained
+permanently", "now standard practice", "the full team now uses"). Scores
+3 at most if it spread only within their own team.
+Weight: 20%
+
+Criterion name: Took the hit so the customer didn't
+What a strong candidate looks like: Everything required at PM level,
+plus at least two separate incidents handled without escalating to anyone
+above them ("no escalation to management"). Scores 3 at most for a single
+incident, or one that was escalated.
+Weight: 25%
+
+Criterion name: Wrote down what went wrong
+What a strong candidate looks like: The person wrote the account of a
+failure themselves, it reached people beyond them (the team or the
+customer), and something changed permanently because of it (e.g. a
+lost-deal write-up that became the team's standard qualification step).
+Weight: 15%
+
+SPM total: 100%
+
+=====================================================================
+USAGE RULES
+=====================================================================
+- Score CV content only. Name, email, phone, photo, age, gender and college
+  name are never sent to the AI model.
+- Every score must quote the CV line it is based on.
+- Score every candidate against both the PM and the SPM rubric.
+- The system ranks and explains. Arjun decides. No candidate is rejected or
+  emailed without Arjun's confirmation.
