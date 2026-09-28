@@ -8,7 +8,7 @@ export const env = {
   // Written by `neon link` / `neon deploy` (pooled connection string).
   databaseUrl: read("DATABASE_URL"),
   geminiApiKey: read("GEMINI_API_KEY"),
-  geminiModel: read("GEMINI_MODEL") || "gemini-2.5-flash",
+  geminiModel: read("GEMINI_MODEL") || "gemini-3.8-flash",
   resendApiKey: read("RESEND_API_KEY"),
   resendFrom: read("RESEND_FROM_EMAIL") || "onboarding@resend.dev",
   testRecipient: read("TEST_RECIPIENT_EMAIL"),

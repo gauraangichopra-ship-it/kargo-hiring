@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { draftFor } from "@/lib/pipeline";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 // AI step for one candidate: brief (invite/review) + email draft. Never sends.
 export async function POST(req: Request) {

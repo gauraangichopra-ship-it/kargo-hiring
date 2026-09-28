@@ -3,7 +3,7 @@ import { draftFor } from "@/lib/pipeline";
 import { isUuid, query } from "@/lib/db";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 // Arjun's Invite/Reject switch. Regenerates the draft for the new type.
 export async function POST(req: Request, ctx: RouteContext<"/api/candidate/[id]/decision">) {

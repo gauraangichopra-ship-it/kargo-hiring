@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { rescoreCandidate } from "@/lib/pipeline";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 export async function POST(req: Request) {
   const { candidateId } = await req.json();

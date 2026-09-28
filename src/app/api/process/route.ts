@@ -5,7 +5,7 @@ import { processFile } from "@/lib/pipeline";
 import type { Role } from "@/lib/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 // One CV per request: CONTEXT (extract + PII split) and PROCESSING (score both rubrics).
 export async function POST(req: Request) {

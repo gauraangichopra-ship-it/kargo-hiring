@@ -23,6 +23,13 @@ function isRetryable(err: unknown): boolean {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// Google's 429s say how long to wait ("retryDelay":"27s" / "retry in 27.1s"). Honour it.
+function suggestedDelayMs(err: unknown): number | null {
+  const msg = (err as { message?: string })?.message ?? "";
+  const m = msg.match(/"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/) ?? msg.match(/retry in (\d+(?:\.\d+)?)s/i);
+  return m ? Math.ceil(Number(m[1]) * 1000) + 500 : null;
+}
+
 // One JSON-mode Gemini call with exponential backoff on 429 / 5xx.
 // Callers are responsible for making sure no PII is in `prompt`.
 export async function generateJson<T>(opts: {
@@ -50,8 +57,9 @@ export async function generateJson<T>(opts: {
     } catch (err) {
       lastErr = err;
       if (!isRetryable(err) || attempt === MAX_ATTEMPTS - 1) break;
-      // 1s, 2s, 4s, 8s + jitter
-      await sleep(1000 * 2 ** attempt + Math.random() * 500);
+      // Google's suggested delay (capped at 60s), else 1s, 2s, 4s, 8s + jitter.
+      const hinted = suggestedDelayMs(err);
+      await sleep(hinted ? Math.min(hinted, 60_000) : 1000 * 2 ** attempt + Math.random() * 500);
     }
   }
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
