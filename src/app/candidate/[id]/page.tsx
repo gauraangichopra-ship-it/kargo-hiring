@@ -27,7 +27,7 @@ export default async function CandidatePage({ params }: PageProps<"/candidate/[i
       <Link href="/" className="text-sm text-kargo hover:underline">← Back to dashboard</Link>
 
       <Card className="p-5">
-        <div className="flex flex-wrap items-start gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
           <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-semibold">{name}</h1>
             <p className="mt-1 text-sm text-muted break-words">
@@ -41,7 +41,7 @@ export default async function CandidatePage({ params }: PageProps<"/candidate/[i
               {own?.rank_in_role ? <> · ranked <strong>#{own.rank_in_role}</strong></> : null}
               <span className="ml-2"><RecBadge rec={own?.recommended ?? null} decision={c.decision} /></span>
             </p>
-            {c.error && <p className="mt-2 text-sm text-red-700">Error: {c.error}</p>}
+            {c.error && <p className="mt-2 text-sm text-red-700 break-words">Error: {c.error}</p>}
           </div>
           <div className="flex gap-3">
             {(["PM", "SPM"] as Role[]).map((r) => {

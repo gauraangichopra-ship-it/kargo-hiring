@@ -27,7 +27,7 @@ export async function GET() {
   }
 
   checks.gemini = env.geminiApiKey
-    ? { ok: true, detail: `key present, model ${env.geminiModel}` }
+    ? { ok: true, detail: `key present, models ${env.geminiModels.join(" → ")}` }
     : { ok: false, detail: "GEMINI_API_KEY missing" };
   checks.resend = env.resendApiKey
     ? { ok: true, detail: `key present, SEND_MODE=${env.sendMode}` }

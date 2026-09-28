@@ -8,7 +8,12 @@ export const env = {
   // Written by `neon link` / `neon deploy` (pooled connection string).
   databaseUrl: read("DATABASE_URL"),
   geminiApiKey: read("GEMINI_API_KEY"),
-  geminiModel: read("GEMINI_MODEL") || "gemini-3.8-flash",
+  // Tried in order: if one is overloaded / out of quota / unavailable, the next is used.
+  // Default chosen by probing this key: Flash-Lite models answer on the free tier.
+  geminiModels: (read("GEMINI_MODEL") || "gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-flash-lite-latest")
+    .split(",")
+    .map((m) => m.trim())
+    .filter(Boolean),
   resendApiKey: read("RESEND_API_KEY"),
   resendFrom: read("RESEND_FROM_EMAIL") || "onboarding@resend.dev",
   testRecipient: read("TEST_RECIPIENT_EMAIL"),

@@ -43,18 +43,23 @@ export async function generateBrief(input: {
   weightedTotal: number;
   rank: number | null;
 }): Promise<{ brief: string; probe_questions: string[] }> {
-  const lowest = [...input.scores].sort((a, b) => a.score - b.score || b.weight - a.weight).slice(0, 2);
+  const lowest = [...input.scores]
+    .filter((s) => s.score < 5)
+    .sort((a, b) => a.score - b.score || b.weight - a.weight)
+    .slice(0, 2);
   const prompt = [
     `Role: ${ROLE_TITLE[input.role]}. Weighted score ${input.weightedTotal}/100${input.rank ? `, ranked #${input.rank} in this role` : ""}.`,
     "",
     "Rubric scores:",
     scoreTable(input.scores),
     "",
-    `Lowest-scoring criteria: ${lowest.map((l) => l.criterion_name).join(", ")}`,
+    lowest.length
+      ? `Lowest-scoring criteria: ${lowest.map((l) => l.criterion_name).join(", ")}`
+      : "Every criterion scored 5/5. There is no scoring gap, so sentence 3 and the probe questions should name what the CV claims but does not prove (scale, their personal role vs the team's, what happened afterwards).",
     "",
     "Return:",
-    '- "brief": EXACTLY 3 sentences. Sentence 1: who they are (the work they have done). Sentence 2: why they ranked here, citing the strongest evidence. Sentence 3: the biggest gap.',
-    '- "probe_questions": 2-3 interview questions that test the lowest-scoring criteria. Each question should ask for a specific past example.',
+    '- "brief": EXACTLY 3 sentences. Sentence 1: who they are (the work they have done). Sentence 2: why they ranked here, citing the strongest evidence. Sentence 3: the biggest gap or the biggest unproven claim. Do not quote scores or rank numbers.',
+    '- "probe_questions": 2-3 interview questions that test the lowest-scoring criteria (or, if none, the unproven claims). Each asks for a specific past example and must not simply repeat a line from the CV back to them.',
     "",
     "<<<CV",
     input.cvRedacted,
@@ -105,6 +110,15 @@ function wordCount(s: string): number {
   return s.trim().split(/\s+/).length;
 }
 
+// Models sometimes return one run-on paragraph. Put the greeting and the
+// sign-off on their own lines so the email reads like a person wrote it.
+export function tidyEmail(body: string): string {
+  let out = body.replace(/\r\n/g, "\n").trim();
+  out = out.replace(/^(Hi \[NAME\],)[ \t]*(?!\n)(\S)/, (_, hi, c) => `${hi}\n\n${c.toUpperCase()}`);
+  out = out.replace(/\s*(?:(?:Best|Warmly|Regards|Thanks|Cheers),?\s*)?Arjun Mehta\s*,?\s*Founder,?\s*Kargo\.?\s*$/i, "");
+  return `${out.trim()}\n\nArjun Mehta\nFounder, Kargo`;
+}
+
 const BAD_PLACEHOLDER = /\[(?!NAME\]|ROLE\])[A-Z_ ]+\]/;
 
 export async function generateEmail(input: {
@@ -124,7 +138,7 @@ export async function generateEmail(input: {
       ? strongest.map((s) => `- "${s.evidence_quote}"`).join("\n")
       : "- (the CV has little specific evidence; reference their general background in one honest line)",
     "",
-    'Return JSON: {"body": "..."} - the plain-text email body only, starting with "Hi [NAME],". No subject line.',
+    'Return JSON: {"body": "..."} - the plain-text email body only. Put "Hi [NAME]," on its own line, then 2-3 short paragraphs separated by blank lines, then the sign-off on its own two lines. No subject line.',
   ].join("\n");
 
   let body = "";
@@ -134,5 +148,5 @@ export async function generateEmail(input: {
     if (body.includes("[NAME]") && !BAD_PLACEHOLDER.test(body) && wordCount(body) <= 150) break;
   }
   if (!body) throw new Error("Email draft came back empty");
-  return { subject: SUBJECTS[input.type], body };
+  return { subject: SUBJECTS[input.type], body: tidyEmail(body) };
 }

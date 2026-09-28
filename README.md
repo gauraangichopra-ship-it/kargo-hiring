@@ -29,7 +29,7 @@ Then add `GEMINI_API_KEY` (and later the Resend vars) to `.env.local`.
 | `DATABASE_URL` | yes | Neon pooled connection string; written by `neon link`. Server-side only |
 | `DATABASE_URL_UNPOOLED` | for `db:push` | Direct connection used for schema changes |
 | `GEMINI_API_KEY` | yes | **Use a key with billing enabled** (see Privacy) |
-| `GEMINI_MODEL` | no | Defaults to `gemini-3.8-flash` |
+| `GEMINI_MODEL` | no | Comma-separated fallback chain. Default `gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-flash-lite-latest` (the models that answer on this key's tier). If one is busy or out of quota the next is used |
 | `RESEND_API_KEY` | later | Blank = Send buttons show "Email not configured" |
 | `RESEND_FROM_EMAIL` | no | Defaults to `onboarding@resend.dev` |
 | `TEST_RECIPIENT_EMAIL` | for sending | MESA test inbox; every email goes here in test mode |

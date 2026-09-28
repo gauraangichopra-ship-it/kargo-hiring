@@ -189,10 +189,10 @@ export default function DashboardView({ rows }: { rows: DashboardRow[] }) {
           <h2 className="text-sm font-semibold">Not ranked yet ({pending.length})</h2>
           <ul className="mt-2 divide-y divide-kargo/5 text-sm">
             {pending.map((p) => (
-              <li key={p.id} className="py-2 flex flex-wrap gap-2">
+              <li key={p.id} className="py-2 flex flex-wrap gap-x-2 gap-y-1 min-w-0">
                 <Link href={`/candidate/${p.id}`} className="text-kargo hover:underline">{p.name}</Link>
                 <span className="text-muted">· {p.status}</span>
-                {p.error && <span className="text-red-700">· {p.error}</span>}
+                {p.error && <span className="basis-full min-w-0 break-words text-red-700">{p.error}</span>}
               </li>
             ))}
           </ul>

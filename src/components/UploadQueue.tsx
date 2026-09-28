@@ -199,7 +199,7 @@ export default function UploadQueue() {
                 {i.stage === "duplicate" && <span className="text-xs text-muted">Already uploaded - skipped</span>}
                 {i.stage === "error" && (
                   <>
-                    <span className="basis-full text-xs text-red-700 sm:basis-auto">{i.error}</span>
+                    <span className="basis-full min-w-0 break-words text-xs text-red-700 sm:basis-auto">{i.error}</span>
                     <button
                       onClick={() => retry(i)}
                       disabled={running || !role}
