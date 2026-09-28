@@ -1,5 +1,7 @@
 # Kargo Hiring Dashboard
 
+Next.js · Neon Postgres · Gemini Flash · Resend
+
 A ranked PM / SPM shortlist for Arjun Mehta, founder of Kargo.
 **The system ranks and explains. Arjun decides. Nothing is sent without his click.**
 
@@ -9,10 +11,13 @@ Candidates are scored against a rubric built from Kargo's best past hires (`rubr
 
 ```bash
 npm install
-cp .env.example .env.local        # then fill it in (see below)
+npx neon auth                                  # sign in (browser)
+npx neon link --project-id <id> --branch production -y   # writes DATABASE_URL into .env.local
 ```
 
-1. In Supabase → SQL editor, paste **`supabase/schema.sql`** and run it.
+Then add `GEMINI_API_KEY` (and later the Resend vars) to `.env.local`.
+
+1. `npm run db:push`: creates the 9 tables on Neon from `db/schema.sql`. It does nothing if they already exist; `npm run db:push -- --reset` wipes and recreates them.
 2. `npm run seed`: parses `rubric.txt` into `rubric_criteria` (fails loudly if a role's weights don't sum to 100).
 3. `npm run dev` → http://localhost:3000
 4. Open **/api/health**. Every check should be `ok: true` (Resend can stay false until checkpoint B·2).
@@ -21,8 +26,8 @@ cp .env.example .env.local        # then fill it in (see below)
 
 | Variable | Needed | Notes |
 |---|---|---|
-| `SUPABASE_URL` | yes | Project URL |
-| `SUPABASE_ANON_KEY` | yes | Server-side only; never shipped to the browser |
+| `DATABASE_URL` | yes | Neon pooled connection string; written by `neon link`. Server-side only |
+| `DATABASE_URL_UNPOOLED` | for `db:push` | Direct connection used for schema changes |
 | `GEMINI_API_KEY` | yes | **Use a key with billing enabled** (see Privacy) |
 | `GEMINI_MODEL` | no | Defaults to `gemini-2.5-flash` |
 | `RESEND_API_KEY` | later | Blank = Send buttons show "Email not configured" |
@@ -40,7 +45,7 @@ FOUNDER    TRIGGER     /upload: pick role (PM|SPM), drop up to 60 CVs
            INPUT       CV file + role  ──►  POST /api/process   (3 files in parallel)
               │
 SYSTEM     CONTEXT     parse PDF/DOCX/TXT
-              │        regex → name, email, phone, links      ──► candidate_pii   (never sent to AI)
+              │        regex → name, email, phone, links      ──► candidate_pii     (never sent to AI)
               │        redact → [CANDIDATE] [EMAIL] [PHONE] [LINK] [INSTITUTION]
               │        ASSERT no PII left, else status=error, no AI call
               │                                               ──► candidate_content (only thing AI sees)
@@ -78,6 +83,7 @@ EMAIL      RESEND      POST /api/send-email: fill [NAME]/[ROLE], refuse leftover
 | Weighted totals, quote check, ranking (pure code) | `src/lib/scoring-core.ts` |
 | Brief + email prompts | `src/lib/drafts.ts` |
 | Pipeline orchestration | `src/lib/pipeline.ts` |
+| Database connection (Neon) | `src/lib/db.ts`, `db/schema.sql`, `scripts/db-push.ts` |
 | Resend + test/live mode | `src/lib/email.ts` |
 | Tunables (top-N, review band, concurrency) | `src/lib/config.ts` |
 
@@ -100,12 +106,12 @@ Emails go to `TEST_RECIPIENT_EMAIL` with the subject prefixed `[TEST -> candidat
 SEND_MODE=live
 ```
 
-Before doing that: verify your own domain in Resend and set `RESEND_FROM_EMAIL` to it (`onboarding@resend.dev` can only deliver to your own address), add Supabase Auth, and replace the demo RLS policies in `schema.sql`.
+Before doing that: verify your own domain in Resend and set `RESEND_FROM_EMAIL` to it (`onboarding@resend.dev` can only deliver to your own address), and put the app behind a login (e.g. Neon Auth) so only Arjun can open it.
 
 ## Deploy (Vercel)
 
 1. `git push` to GitHub.
-2. Import the repo in Vercel and add every env var from the table above.
+2. Import the repo in Vercel and add every env var from the table above (copy `DATABASE_URL` from `.env.local`, or connect the Neon integration in Vercel).
 3. Deploy. Visit `/api/health` on the live URL.
 
 ## Notes

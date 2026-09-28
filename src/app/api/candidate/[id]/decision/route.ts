@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { draftFor } from "@/lib/pipeline";
-import { db, must } from "@/lib/supabase";
+import { isUuid, query } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -12,12 +12,11 @@ export async function POST(req: Request, ctx: RouteContext<"/api/candidate/[id]/
   if (decision !== "invite" && decision !== "reject") {
     return NextResponse.json({ error: "decision must be invite or reject" }, { status: 400 });
   }
-  const sent = must<{ id: string }[]>(
-    await db().from("emails").select("id").eq("candidate_id", id).in("status", ["sent", "sending"]),
-  );
+  if (!isUuid(id)) return NextResponse.json({ error: "Unknown candidate" }, { status: 404 });
+  const sent = await query("select 1 from emails where candidate_id = $1 and status in ('sent', 'sending')", [id]);
   if (sent.length) return NextResponse.json({ error: "An email was already sent to this candidate" }, { status: 409 });
   try {
-    must(await db().from("candidates").update({ founder_decision: decision }).eq("id", id));
+    await query("update candidates set founder_decision = $2 where id = $1", [id, decision]);
     await draftFor(id, { forceEmail: true });
     return NextResponse.json({ ok: true });
   } catch (err) {

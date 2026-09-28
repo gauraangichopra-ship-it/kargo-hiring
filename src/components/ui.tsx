@@ -55,11 +55,11 @@ export function SetupNotice({ error }: { error: string }) {
   return (
     <Card className="p-6 max-w-2xl">
       <h1 className="text-lg font-semibold">Setup needed</h1>
-      <p className="mt-2 text-sm text-muted">The app could not load data from Supabase:</p>
+      <p className="mt-2 text-sm text-muted">The app could not load data from the Neon database:</p>
       <pre className="mt-2 whitespace-pre-wrap rounded bg-red-50 p-3 text-sm text-red-800">{error}</pre>
       <ol className="mt-4 list-decimal pl-5 text-sm space-y-1">
-        <li>Fill in <code>SUPABASE_URL</code>, <code>SUPABASE_ANON_KEY</code> and <code>GEMINI_API_KEY</code> in <code>.env.local</code>.</li>
-        <li>Paste <code>supabase/schema.sql</code> into the Supabase SQL editor and run it.</li>
+        <li>Run <code>npx neon link</code> so <code>DATABASE_URL</code> is in <code>.env.local</code>, and add <code>GEMINI_API_KEY</code>.</li>
+        <li>Run <code>npm run db:push</code> to create the tables.</li>
         <li>Run <code>npm run seed</code>, then restart <code>npm run dev</code>.</li>
         <li>Check <a className="underline" href="/api/health">/api/health</a>.</li>
       </ol>

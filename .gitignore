@@ -42,3 +42,4 @@ next-env.d.ts
 
 # allow the blank template to be committed
 !.env.example
+.neon

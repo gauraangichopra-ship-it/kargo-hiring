@@ -1,7 +1,7 @@
 -- =====================================================================
--- Kargo Hiring Dashboard - schema
--- Paste this whole file into the Supabase SQL editor and run it once.
--- Safe to re-run: it drops and recreates every table (all data is lost).
+-- Kargo Hiring Dashboard - schema (Neon Postgres)
+-- Applied by `npm run db:push`. That script refuses to run on a database that
+-- already has these tables unless you pass --reset (which deletes all data).
 -- =====================================================================
 
 drop table if exists emails cascade;
@@ -143,20 +143,8 @@ create table emails (
 );
 
 -- ---------------------------------------------------------------------
--- Row Level Security
--- DEMO ONLY: these policies let the anon key read and write everything.
--- In production, put the app behind Supabase Auth, restrict every policy
--- to the founder's user id, and move writes to a service-role key held
--- only on the server.
+-- Access
+-- The app connects with the Neon role in DATABASE_URL, server-side only.
+-- The browser never gets a database connection. In production, put the app
+-- behind a login (e.g. Neon Auth) and use a least-privilege role.
 -- ---------------------------------------------------------------------
-do $$
-declare t text;
-begin
-  foreach t in array array[
-    'rubric_criteria', 'rubric_meta', 'candidates', 'candidate_pii',
-    'candidate_content', 'scores', 'score_totals', 'briefs', 'emails'
-  ] loop
-    execute format('alter table %I enable row level security', t);
-    execute format('create policy "demo_all_%s" on %I for all to anon using (true) with check (true)', t, t);
-  end loop;
-end $$;

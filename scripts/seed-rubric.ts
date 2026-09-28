@@ -1,64 +1,70 @@
-// npm run seed  ->  parses rubric.txt and writes it to Supabase.
+// npm run seed  ->  parses rubric.txt and writes it to the Neon database.
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { config } from "dotenv";
-import { createClient } from "@supabase/supabase-js";
+import { Pool } from "@neondatabase/serverless";
 import { parseRubric, type Role } from "../src/lib/rubric-parse";
 
 config({ path: resolve(process.cwd(), ".env.local") });
 
 async function main() {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_ANON_KEY;
-  if (!url || !key) throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY must be set in .env.local");
+  const url = process.env.DATABASE_URL;
+  if (!url) throw new Error("DATABASE_URL is not set - run `npx neon link` first");
 
   const text = readFileSync(resolve(process.cwd(), "rubric.txt"), "utf8");
   const rubric = parseRubric(text); // throws loudly if anything is off
-  const db = createClient(url, key, { auth: { persistSession: false } });
+  const pool = new Pool({ connectionString: url });
+  const db = await pool.connect();
 
-  for (const role of ["PM", "SPM"] as Role[]) {
-    const rows = rubric.criteria.filter((c) => c.role === role);
-    const { data: existing, error: readErr } = await db
-      .from("rubric_criteria")
-      .select("criterion_name")
-      .eq("role", role);
-    if (readErr) throw readErr;
+  try {
+    // One transaction: the weights trigger checks the final state at commit.
+    await db.query("begin");
+    for (const role of ["PM", "SPM"] as Role[]) {
+      const rows = rubric.criteria.filter((c) => c.role === role);
+      const { rows: existing } = await db.query<{ criterion_name: string }>(
+        "select criterion_name from rubric_criteria where role = $1",
+        [role],
+      );
+      const sameNames =
+        existing.length === rows.length && rows.every((r) => existing.some((e) => e.criterion_name === r.criterion_name));
 
-    const sameNames =
-      existing.length === rows.length &&
-      rows.every((r) => existing.some((e) => e.criterion_name === r.criterion_name));
-
-    if (sameNames) {
-      // Keeps criterion ids stable, so existing scores survive a reseed.
-      const { error } = await db
-        .from("rubric_criteria")
-        .upsert(rows, { onConflict: "role,criterion_name" });
-      if (error) throw error;
-    } else {
-      if (existing.length) {
+      if (!sameNames && existing.length) {
         console.warn(`${role}: criteria changed - replacing them (existing ${role} scores are deleted).`);
-        const { error } = await db.from("rubric_criteria").delete().eq("role", role);
-        if (error) throw error;
+        await db.query("delete from rubric_criteria where role = $1", [role]);
       }
-      const { error } = await db.from("rubric_criteria").insert(rows);
-      if (error) throw error;
+      // Upsert keeps criterion ids stable, so existing scores survive a reseed.
+      // sort_order is moved out of the way first to avoid (role, sort_order) clashes.
+      await db.query("update rubric_criteria set sort_order = sort_order + 1000 where role = $1", [role]);
+      for (const r of rows) {
+        await db.query(
+          `insert into rubric_criteria (role, criterion_name, description, weight, sort_order)
+           values ($1, $2, $3, $4, $5)
+           on conflict (role, criterion_name) do update set
+             description = excluded.description, weight = excluded.weight, sort_order = excluded.sort_order`,
+          [r.role, r.criterion_name, r.description, r.weight, r.sort_order],
+        );
+      }
+      console.log(`${role}: ${rows.map((r) => `${r.criterion_name} (${r.weight}%)`).join(", ")}`);
     }
-    console.log(`${role}: ${rows.map((r) => `${r.criterion_name} (${r.weight}%)`).join(", ")}`);
-  }
+    await db.query(
+      `insert into rubric_meta (key, value) values ('scoring', $1), ('usage_rules', $2)
+       on conflict (key) do update set value = excluded.value`,
+      [rubric.scoring, rubric.usageRules],
+    );
+    await db.query("commit");
 
-  const { error: metaErr } = await db.from("rubric_meta").upsert([
-    { key: "scoring", value: rubric.scoring },
-    { key: "usage_rules", value: rubric.usageRules },
-  ]);
-  if (metaErr) throw metaErr;
-
-  const { data: check, error: checkErr } = await db.from("rubric_criteria").select("role, weight");
-  if (checkErr) throw checkErr;
-  for (const role of ["PM", "SPM"]) {
-    const sum = check.filter((r) => r.role === role).reduce((a, r) => a + r.weight, 0);
-    if (sum !== 100) throw new Error(`After seeding, ${role} weights sum to ${sum}`);
+    const { rows: check } = await db.query<{ role: string; n: number; total: number }>(
+      "select role, count(*)::int as n, sum(weight)::int as total from rubric_criteria group by role order by role",
+    );
+    for (const c of check) if (c.total !== 100) throw new Error(`After seeding, ${c.role} weights sum to ${c.total}`);
+    console.log(`Rubric seeded: ${check.reduce((a, c) => a + c.n, 0)} criteria, weights = 100 per role.`);
+  } catch (err) {
+    await db.query("rollback").catch(() => {});
+    throw err;
+  } finally {
+    db.release();
+    await pool.end();
   }
-  console.log("Rubric seeded: 10 criteria, weights = 100 per role.");
 }
 
 main().catch((err) => {

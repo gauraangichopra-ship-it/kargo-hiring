@@ -1,7 +1,7 @@
 import "server-only";
 import { Resend } from "resend";
 import { emailConfigured, env } from "./env";
-import { db, must } from "./supabase";
+import { isUuid, maybeOne, query } from "./db";
 import { fillPlaceholders, LEFTOVER_PLACEHOLDER as LEFTOVER } from "./placeholders";
 import type { EmailRow } from "./types";
 
@@ -24,12 +24,14 @@ export type SendOutcome =
 export async function sendEmail(emailId: string): Promise<SendOutcome> {
   if (!emailConfigured()) return { ok: false, error: "Email not configured (RESEND_API_KEY is empty)" };
 
-  const email = must<EmailRow | null>(await db().from("emails").select("*").eq("id", emailId).maybeSingle());
+  if (!isUuid(emailId)) return { ok: false, error: "Email not found" };
+  const email = await maybeOne<EmailRow>("select * from emails where id = $1", [emailId]);
   if (!email) return { ok: false, error: "Email not found" };
   if (email.status === "sent") return { ok: false, error: "Already sent - emails are never sent twice" };
 
-  const pii = must<{ full_name: string | null; email: string | null } | null>(
-    await db().from("candidate_pii").select("full_name, email").eq("candidate_id", email.candidate_id).maybeSingle(),
+  const pii = await maybeOne<{ full_name: string | null; email: string | null }>(
+    "select full_name, email from candidate_pii where candidate_id = $1",
+    [email.candidate_id],
   );
   if (!pii?.full_name) return { ok: false, error: "No candidate name on file - add it before sending" };
 
@@ -48,13 +50,10 @@ export async function sendEmail(emailId: string): Promise<SendOutcome> {
   if (leftover) return { ok: false, error: `Placeholder ${leftover[0]} is still in the email - edit it before sending` };
 
   // Lock: only a draft/failed email can move to 'sending'. A second click finds nothing to update.
-  const locked = must<{ id: string }[]>(
-    await db()
-      .from("emails")
-      .update({ status: "sending", error_message: null })
-      .eq("id", emailId)
-      .in("status", ["draft", "failed"])
-      .select("id"),
+  const locked = await query<{ id: string }>(
+    `update emails set status = 'sending', error_message = null
+      where id = $1 and status in ('draft', 'failed') returning id`,
+    [emailId],
   );
   if (!locked.length) return { ok: false, error: "This email is already being sent or was sent" };
 
@@ -70,18 +69,15 @@ export async function sendEmail(emailId: string): Promise<SendOutcome> {
     });
     if (error || !data) throw new Error(error?.message ?? "Resend returned no message id");
 
-    const now = new Date().toISOString();
-    must(
-      await db()
-        .from("emails")
-        .update({ status: "sent", sent_at: now, resend_message_id: data.id, updated_at: now })
-        .eq("id", emailId),
+    await query(
+      "update emails set status = 'sent', sent_at = now(), resend_message_id = $2, updated_at = now() where id = $1",
+      [emailId, data.id],
     );
-    must(await db().from("candidates").update({ status: "sent" }).eq("id", email.candidate_id));
+    await query("update candidates set status = 'sent' where id = $1", [email.candidate_id]);
     return { ok: true, messageId: data.id, to };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    await db().from("emails").update({ status: "failed", error_message: msg }).eq("id", emailId);
+    await query("update emails set status = 'failed', error_message = $2, updated_at = now() where id = $1", [emailId, msg]).catch(() => {});
     return { ok: false, error: msg };
   }
 }

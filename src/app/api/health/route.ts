@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { env } from "@/lib/env";
-import { db } from "@/lib/supabase";
+import { query } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,15 +11,14 @@ export async function GET() {
   const checks: Record<string, Check> = {};
 
   try {
-    const { error } = await db().from("candidates").select("id", { count: "exact", head: true });
-    checks.supabase = error ? { ok: false, detail: error.message } : { ok: true, detail: "connected" };
+    const [{ n }] = await query<{ n: number }>("select count(*)::int as n from candidates");
+    checks.database = { ok: true, detail: `Neon connected, ${n} candidates` };
   } catch (err) {
-    checks.supabase = { ok: false, detail: err instanceof Error ? err.message : String(err) };
+    checks.database = { ok: false, detail: err instanceof Error ? err.message : String(err) };
   }
 
   try {
-    const { data, error } = await db().from("rubric_criteria").select("role, weight");
-    if (error) throw new Error(error.message);
+    const data = await query<{ role: string; weight: number }>("select role, weight from rubric_criteria");
     const sum = (r: string) => data.filter((d) => d.role === r).reduce((a, d) => a + d.weight, 0);
     const ok = data.length === 10 && sum("PM") === 100 && sum("SPM") === 100;
     checks.rubric = { ok, detail: `${data.length} criteria, PM=${sum("PM")}%, SPM=${sum("SPM")}%` };

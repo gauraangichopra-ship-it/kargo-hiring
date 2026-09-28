@@ -5,8 +5,8 @@ function read(name: string): string {
 }
 
 export const env = {
-  supabaseUrl: read("SUPABASE_URL"),
-  supabaseAnonKey: read("SUPABASE_ANON_KEY"),
+  // Written by `neon link` / `neon deploy` (pooled connection string).
+  databaseUrl: read("DATABASE_URL"),
   geminiApiKey: read("GEMINI_API_KEY"),
   geminiModel: read("GEMINI_MODEL") || "gemini-2.5-flash",
   resendApiKey: read("RESEND_API_KEY"),

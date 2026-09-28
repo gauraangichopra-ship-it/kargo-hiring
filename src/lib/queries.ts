@@ -1,5 +1,5 @@
 import "server-only";
-import { db, must } from "./supabase";
+import { isUuid, maybeOne, query } from "./db";
 import type { CandidateStatus, Criterion, EmailRow, EmailStatus, EmailType, Recommendation, Role } from "./types";
 
 type TotalRow = { role: Role; weighted_total: number; rank_in_role: number | null; recommended: Recommendation | null };
@@ -38,22 +38,26 @@ export type DashboardRow = {
 };
 
 export async function loadCriteria(): Promise<Criterion[]> {
-  return must<Criterion[]>(await db().from("rubric_criteria").select("*").order("sort_order"));
+  return query<Criterion>("select * from rubric_criteria order by role, sort_order");
 }
 
 export async function loadDashboard(): Promise<{ rows: DashboardRow[]; criteria: Criterion[] }> {
   const [raw, criteria] = await Promise.all([
-    db()
-      .from("candidates")
-      .select(
-        "id, created_at, applied_role, file_name, status, error_message, founder_decision," +
-          "candidate_pii(full_name, email)," +
-          "score_totals(role, weighted_total, rank_in_role, recommended)," +
-          "scores(role, criterion_id, score, quote_verified)," +
-          "emails(id, status, email_type)",
-      )
-      .order("created_at", { ascending: false })
-      .then((r) => must<RawCandidate[]>(r)),
+    query<RawCandidate>(
+      `select c.id, c.created_at, c.applied_role, c.file_name, c.status, c.error_message, c.founder_decision,
+         (select json_build_object('full_name', p.full_name, 'email', p.email)
+            from candidate_pii p where p.candidate_id = c.id) as candidate_pii,
+         coalesce((select json_agg(json_build_object('role', t.role, 'weighted_total', t.weighted_total,
+                     'rank_in_role', t.rank_in_role, 'recommended', t.recommended))
+            from score_totals t where t.candidate_id = c.id), '[]') as score_totals,
+         coalesce((select json_agg(json_build_object('role', s.role, 'criterion_id', s.criterion_id,
+                     'score', s.score, 'quote_verified', s.quote_verified))
+            from scores s where s.candidate_id = c.id), '[]') as scores,
+         coalesce((select json_agg(json_build_object('id', e.id, 'status', e.status, 'email_type', e.email_type))
+            from emails e where e.candidate_id = c.id and e.role = c.applied_role), '[]') as emails
+       from candidates c
+       order by c.created_at desc`,
+    ),
     loadCriteria(),
   ]);
 
@@ -111,27 +115,36 @@ export type CandidateDetail = {
 };
 
 export async function loadCandidate(id: string): Promise<CandidateDetail | null> {
-  const c = must<{
+  if (!isUuid(id)) return null;
+  const c = await maybeOne<{
     id: string;
     applied_role: Role;
     file_name: string;
     status: CandidateStatus;
     error_message: string | null;
     founder_decision: "invite" | "reject" | null;
-  } | null>(await db().from("candidates").select("*").eq("id", id).maybeSingle());
+  }>("select * from candidates where id = $1", [id]);
   if (!c) return null;
 
-  const [pii, content, totals, scores, brief, email, criteria] = await Promise.all([
-    db().from("candidate_pii").select("*").eq("candidate_id", id).maybeSingle(),
-    db().from("candidate_content").select("cv_text_redacted").eq("candidate_id", id).maybeSingle(),
-    db().from("score_totals").select("role, weighted_total, rank_in_role, recommended").eq("candidate_id", id),
-    db().from("scores").select("role, criterion_id, score, evidence_quote, reasoning, quote_verified").eq("candidate_id", id),
-    db().from("briefs").select("brief_text, probe_questions").eq("candidate_id", id).eq("role", c.applied_role).maybeSingle(),
-    db().from("emails").select("*").eq("candidate_id", id).eq("role", c.applied_role).maybeSingle(),
+  const [pii, content, totals, scoreRows, brief, email, criteria] = await Promise.all([
+    maybeOne<NonNullable<CandidateDetail["pii"]>>(
+      "select full_name, email, phone, location, links from candidate_pii where candidate_id = $1",
+      [id],
+    ),
+    maybeOne<{ cv_text_redacted: string }>("select cv_text_redacted from candidate_content where candidate_id = $1", [id]),
+    query<TotalRow>("select role, weighted_total, rank_in_role, recommended from score_totals where candidate_id = $1", [id]),
+    query<{ role: Role; criterion_id: string; score: number; evidence_quote: string; reasoning: string; quote_verified: boolean }>(
+      "select role, criterion_id, score, evidence_quote, reasoning, quote_verified from scores where candidate_id = $1",
+      [id],
+    ),
+    maybeOne<{ brief_text: string; probe_questions: string[] }>(
+      "select brief_text, probe_questions from briefs where candidate_id = $1 and role = $2",
+      [id, c.applied_role],
+    ),
+    maybeOne<EmailRow>("select * from emails where candidate_id = $1 and role = $2", [id, c.applied_role]),
     loadCriteria(),
   ]);
 
-  const scoreRows = must<{ role: Role; criterion_id: string; score: number; evidence_quote: string; reasoning: string; quote_verified: boolean }[]>(scores);
   return {
     id: c.id,
     appliedRole: c.applied_role,
@@ -139,17 +152,17 @@ export async function loadCandidate(id: string): Promise<CandidateDetail | null>
     status: c.status,
     error: c.error_message,
     decision: c.founder_decision,
-    pii: must(pii),
-    cvRedacted: must<{ cv_text_redacted: string } | null>(content)?.cv_text_redacted ?? null,
-    totals: must<TotalRow[]>(totals).map((t) => ({ ...t, weighted_total: Number(t.weighted_total) })),
+    pii,
+    cvRedacted: content?.cv_text_redacted ?? null,
+    totals,
     scores: criteria
       .map((k) => {
         const s = scoreRows.find((x) => x.criterion_id === k.id);
         return s ? { ...s, criterion: k } : null;
       })
       .filter((x): x is NonNullable<typeof x> => Boolean(x)),
-    brief: must(brief),
-    email: must(email),
+    brief,
+    email,
   };
 }
 
@@ -168,44 +181,39 @@ export type BulkRow = {
 };
 
 export async function loadUnsent(): Promise<BulkRow[]> {
-  const rows = must<
-    {
-      id: string;
-      candidate_id: string;
-      role: Role;
-      email_type: EmailType;
-      subject: string;
-      status: EmailStatus;
-      error_message: string | null;
-      candidates: {
-        candidate_pii: { full_name: string | null } | null;
-        score_totals: TotalRow[];
-      } | null;
-    }[]
-  >(
-    await db()
-      .from("emails")
-      .select(
-        "id, candidate_id, role, email_type, subject, status, error_message," +
-          "candidates(candidate_pii(full_name), score_totals(role, weighted_total, rank_in_role, recommended))",
-      )
-      .in("status", ["draft", "failed"]),
+  const rows = await query<{
+    id: string;
+    candidate_id: string;
+    role: Role;
+    email_type: EmailType;
+    subject: string;
+    status: EmailStatus;
+    error_message: string | null;
+    full_name: string | null;
+    weighted_total: number | null;
+    recommended: Recommendation | null;
+  }>(
+    `select e.id, e.candidate_id, e.role, e.email_type, e.subject, e.status, e.error_message,
+            p.full_name, t.weighted_total, t.recommended
+       from emails e
+       left join candidate_pii p on p.candidate_id = e.candidate_id
+       left join score_totals t on t.candidate_id = e.candidate_id and t.role = e.role
+      where e.status in ('draft', 'failed')`,
   );
   return rows
-    .map((e) => {
-      const t = e.candidates?.score_totals.find((x) => x.role === e.role);
+    .map((e): BulkRow => {
       return {
         emailId: e.id,
         candidateId: e.candidate_id,
-        name: e.candidates?.candidate_pii?.full_name || "(no name found)",
-        hasName: Boolean(e.candidates?.candidate_pii?.full_name),
+        name: e.full_name || "(no name found)",
+        hasName: Boolean(e.full_name),
         appliedRole: e.role,
         emailType: e.email_type,
         subject: e.subject,
         status: e.status,
         error: e.error_message,
-        total: t ? Number(t.weighted_total) : null,
-        recommended: t?.recommended ?? null,
+        total: e.weighted_total,
+        recommended: e.recommended,
       };
     })
     .sort((a, b) => (b.total ?? 0) - (a.total ?? 0));

@@ -1,5 +1,5 @@
 import "server-only";
-import { db, must } from "./supabase";
+import { query } from "./db";
 import type { Criterion, Role } from "./types";
 
 export type Rubric = {
@@ -10,12 +10,10 @@ export type Rubric = {
 
 // The rubric always comes from the database (seeded from rubric.txt).
 export async function loadRubric(): Promise<Rubric> {
-  const rows = must<Criterion[]>(
-    await db().from("rubric_criteria").select("*").order("sort_order"),
-  );
-  const meta = must<{ key: string; value: string }[]>(
-    await db().from("rubric_meta").select("key, value"),
-  );
+  const [rows, meta] = await Promise.all([
+    query<Criterion>("select * from rubric_criteria order by role, sort_order"),
+    query<{ key: string; value: string }>("select key, value from rubric_meta"),
+  ]);
   const criteria = {
     PM: rows.filter((r) => r.role === "PM"),
     SPM: rows.filter((r) => r.role === "SPM"),

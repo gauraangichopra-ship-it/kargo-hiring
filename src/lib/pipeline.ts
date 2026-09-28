@@ -1,6 +1,7 @@
 import "server-only";
 import { Type } from "@google/genai";
 import { CONFIRM_NAME_WITH_AI } from "./config";
+import { isUuid, maybeOne, one, query, tx } from "./db";
 import { generateBrief, generateEmail } from "./drafts";
 import { generateJson } from "./gemini";
 import { extractText } from "./parse";
@@ -8,7 +9,6 @@ import { extractPii, findLeaks, redact, type Pii } from "./pii";
 import { loadRubric } from "./rubric";
 import { rankPool } from "./scoring-core";
 import { scoreForRole, type RoleScore } from "./scoring";
-import { db, must } from "./supabase";
 import { ROLES, type EmailType, type Recommendation, type Role } from "./types";
 
 export type ProcessResult =
@@ -17,37 +17,34 @@ export type ProcessResult =
   | { status: "error"; candidateId: string | null; error: string };
 
 async function setStatus(id: string, status: string, error_message: string | null = null) {
-  must(await db().from("candidates").update({ status, error_message }).eq("id", id));
+  await query("update candidates set status = $2, error_message = $3 where id = $1", [id, status, error_message]);
 }
 
 function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+// Scores + total for both roles, in one transaction.
 async function saveScores(id: string, results: RoleScore[]) {
-  for (const r of results) {
-    must(
-      await db()
-        .from("scores")
-        .upsert(
-          r.scores.map((s) => ({
-            candidate_id: id,
-            role: r.role,
-            criterion_id: s.criterion_id,
-            score: s.score,
-            evidence_quote: s.evidence_quote,
-            reasoning: s.reasoning,
-            quote_verified: s.quote_verified,
-          })),
-          { onConflict: "candidate_id,role,criterion_id" },
-        ),
-    );
-    must(
-      await db()
-        .from("score_totals")
-        .upsert({ candidate_id: id, role: r.role, weighted_total: r.weighted_total }, { onConflict: "candidate_id,role" }),
-    );
-  }
+  await tx(async (c) => {
+    for (const r of results) {
+      for (const s of r.scores) {
+        await c.query(
+          `insert into scores (candidate_id, role, criterion_id, score, evidence_quote, reasoning, quote_verified)
+           values ($1, $2, $3, $4, $5, $6, $7)
+           on conflict (candidate_id, role, criterion_id) do update set
+             score = excluded.score, evidence_quote = excluded.evidence_quote,
+             reasoning = excluded.reasoning, quote_verified = excluded.quote_verified`,
+          [id, r.role, s.criterion_id, s.score, s.evidence_quote, s.reasoning, s.quote_verified],
+        );
+      }
+      await c.query(
+        `insert into score_totals (candidate_id, role, weighted_total) values ($1, $2, $3)
+         on conflict (candidate_id, role) do update set weighted_total = excluded.weighted_total`,
+        [id, r.role, r.weighted_total],
+      );
+    }
+  });
 }
 
 // Optional and off by default - see CONFIRM_NAME_WITH_AI in config.ts.
@@ -108,12 +105,10 @@ export async function processFile(fileName: string, buf: Buffer, appliedRole: Ro
   try {
     text = await extractText(fileName, buf);
   } catch (err) {
-    const row = must<{ id: string }>(
-      await db()
-        .from("candidates")
-        .insert({ applied_role: appliedRole, file_name: fileName, status: "error", error_message: message(err) })
-        .select("id")
-        .single(),
+    const row = await one<{ id: string }>(
+      `insert into candidates (applied_role, file_name, status, error_message)
+       values ($1, $2, 'error', $3) returning id`,
+      [appliedRole, fileName, message(err)],
     );
     return { status: "error", candidateId: row.id, error: message(err) };
   }
@@ -123,22 +118,17 @@ export async function processFile(fileName: string, buf: Buffer, appliedRole: Ro
 
   // Skip duplicates: same file name + same extracted email.
   if (pii.email) {
-    const dupes = must<{ id: string; candidate_pii: { email: string | null } | null }[]>(
-      await db()
-        .from("candidates")
-        .select("id, candidate_pii!inner(email)")
-        .eq("file_name", fileName)
-        .ilike("candidate_pii.email", pii.email),
+    const dupes = await query<{ id: string }>(
+      `select c.id from candidates c join candidate_pii p on p.candidate_id = c.id
+        where c.file_name = $1 and lower(p.email) = lower($2) limit 1`,
+      [fileName, pii.email],
     );
     if (dupes.length) return { status: "duplicate", candidateId: dupes[0].id };
   }
 
-  const cand = must<{ id: string }>(
-    await db()
-      .from("candidates")
-      .insert({ applied_role: appliedRole, file_name: fileName, status: "uploaded" })
-      .select("id")
-      .single(),
+  const cand = await one<{ id: string }>(
+    "insert into candidates (applied_role, file_name, status) values ($1, $2, 'uploaded') returning id",
+    [appliedRole, fileName],
   );
   const id = cand.id;
 
@@ -152,21 +142,19 @@ export async function processFile(fileName: string, buf: Buffer, appliedRole: Ro
     const cvRedacted = redact(text, pii);
 
     // d) store PII and redacted content separately
-    must(
-      await db().from("candidate_pii").insert({
-        candidate_id: id,
-        full_name: pii.full_name,
-        email: pii.email,
-        phone: pii.phone,
-        location: pii.location,
-        links: pii.links,
-      }),
+    await query(
+      `insert into candidate_pii (candidate_id, full_name, email, phone, location, links)
+       values ($1, $2, $3, $4, $5, $6)`,
+      [id, pii.full_name, pii.email, pii.phone, pii.location, JSON.stringify(pii.links)],
     );
 
     // e) hard stop before ANY AI call on content if PII survived redaction
     const leaks = findLeaks(cvRedacted, pii);
     if (leaks.length) {
-      must(await db().from("candidate_content").insert({ candidate_id: id, cv_text_redacted: "[withheld: redaction failed]" }));
+      await query("insert into candidate_content (candidate_id, cv_text_redacted) values ($1, $2)", [
+        id,
+        "[withheld: redaction failed]",
+      ]);
       await setStatus(id, "error", `Redaction check failed (${leaks.join(", ")} still present). Not sent to AI.`);
       return { status: "error", candidateId: id, error: `Redaction check failed: ${leaks.join(", ")}` };
     }
@@ -176,13 +164,11 @@ export async function processFile(fileName: string, buf: Buffer, appliedRole: Ro
     }
 
     const extracted = await extractStructure(cvRedacted).catch(() => null);
-    must(
-      await db().from("candidate_content").insert({
-        candidate_id: id,
-        cv_text_redacted: cvRedacted,
-        extracted_json: extracted,
-      }),
-    );
+    await query("insert into candidate_content (candidate_id, cv_text_redacted, extracted_json) values ($1, $2, $3)", [
+      id,
+      cvRedacted,
+      extracted ? JSON.stringify(extracted) : null,
+    ]);
     await setStatus(id, "extracted");
 
     // PROCESSING: score against BOTH rubrics
@@ -200,10 +186,12 @@ export async function processFile(fileName: string, buf: Buffer, appliedRole: Ro
 
 // Re-run scoring for a candidate stuck in 'error' (used by the Retry button).
 export async function rescoreCandidate(id: string): Promise<ProcessResult> {
-  const content = must<{ cv_text_redacted: string } | null>(
-    await db().from("candidate_content").select("cv_text_redacted").eq("candidate_id", id).maybeSingle(),
+  if (!isUuid(id)) return { status: "error", candidateId: null, error: "Unknown candidate" };
+  const content = await maybeOne<{ cv_text_redacted: string }>(
+    "select cv_text_redacted from candidate_content where candidate_id = $1",
+    [id],
   );
-  const pii = must<Pii | null>(await db().from("candidate_pii").select("*").eq("candidate_id", id).maybeSingle());
+  const pii = await maybeOne<Pii>("select * from candidate_pii where candidate_id = $1", [id]);
   if (!content || !pii || content.cv_text_redacted.startsWith("[withheld")) {
     return { status: "error", candidateId: id, error: "No safe CV text stored - upload the file again." };
   }
@@ -243,18 +231,19 @@ export function desiredEmailType(recommended: Recommendation | null, decision: C
 }
 
 export async function rankAll(): Promise<{ needsDraft: string[] }> {
-  const cands = must<CandidateLite[]>(
-    await db().from("candidates").select("id, applied_role, status, founder_decision").neq("status", "error"),
-  );
-  const totals = must<{ candidate_id: string; role: Role; weighted_total: number }[]>(
-    await db().from("score_totals").select("candidate_id, role, weighted_total"),
-  );
-  const emails = must<{ candidate_id: string; email_type: EmailType; status: string; edited_by_founder: boolean }[]>(
-    await db().from("emails").select("candidate_id, email_type, status, edited_by_founder"),
-  );
-  const briefs = must<{ candidate_id: string }[]>(await db().from("briefs").select("candidate_id"));
+  const [cands, totals, emails, briefs] = await Promise.all([
+    query<CandidateLite>("select id, applied_role, status, founder_decision from candidates where status <> 'error'"),
+    query<{ candidate_id: string; role: Role; weighted_total: number }>(
+      "select candidate_id, role, weighted_total from score_totals",
+    ),
+    query<{ candidate_id: string; email_type: EmailType; status: string; edited_by_founder: boolean }>(
+      "select candidate_id, email_type, status, edited_by_founder from emails",
+    ),
+    query<{ candidate_id: string }>("select candidate_id from briefs"),
+  ]);
 
   const recs = new Map<string, Recommendation>();
+  const updates: { id: string; role: Role; rank: number; rec: Recommendation }[] = [];
   for (const role of ROLES) {
     const pool = cands
       .filter((c) => c.applied_role === role)
@@ -264,14 +253,17 @@ export async function rankAll(): Promise<{ needsDraft: string[] }> {
     const ranked = rankPool(pool);
     for (const r of ranked) {
       recs.set(r.candidate_id, r.recommended);
-      must(
-        await db()
-          .from("score_totals")
-          .update({ rank_in_role: r.rank, recommended: r.recommended })
-          .eq("candidate_id", r.candidate_id)
-          .eq("role", role),
-      );
+      updates.push({ id: r.candidate_id, role, rank: r.rank, rec: r.recommended });
     }
+  }
+  // One statement for the whole ranking.
+  if (updates.length) {
+    await query(
+      `update score_totals t set rank_in_role = u.rank, recommended = u.rec
+         from unnest($1::uuid[], $2::text[], $3::int[], $4::text[]) as u(id, role, rank, rec)
+        where t.candidate_id = u.id and t.role = u.role`,
+      [updates.map((u) => u.id), updates.map((u) => u.role), updates.map((u) => u.rank), updates.map((u) => u.rec)],
+    );
   }
 
   const needsDraft: string[] = [];
@@ -292,42 +284,29 @@ export async function rankAll(): Promise<{ needsDraft: string[] }> {
 // AI step: brief (invite/review) + email draft (everyone), for applied role.
 // ---------------------------------------------------------------------
 async function scoresForPrompt(candidateId: string, role: Role) {
-  const rows = must<
-    { score: number; evidence_quote: string; reasoning: string; rubric_criteria: { criterion_name: string; weight: number; sort_order: number } }[]
-  >(
-    await db()
-      .from("scores")
-      .select("score, evidence_quote, reasoning, rubric_criteria(criterion_name, weight, sort_order)")
-      .eq("candidate_id", candidateId)
-      .eq("role", role),
+  return query<{ criterion_name: string; weight: number; score: number; evidence_quote: string; reasoning: string }>(
+    `select k.criterion_name, k.weight, s.score, s.evidence_quote, s.reasoning
+       from scores s join rubric_criteria k on k.id = s.criterion_id
+      where s.candidate_id = $1 and s.role = $2
+      order by k.sort_order`,
+    [candidateId, role],
   );
-  return rows
-    .sort((a, b) => a.rubric_criteria.sort_order - b.rubric_criteria.sort_order)
-    .map((r) => ({
-      criterion_name: r.rubric_criteria.criterion_name,
-      weight: r.rubric_criteria.weight,
-      score: r.score,
-      evidence_quote: r.evidence_quote,
-      reasoning: r.reasoning,
-    }));
 }
 
 export async function draftFor(candidateId: string, opts: { forceEmail?: boolean } = {}) {
-  const c = must<CandidateLite>(
-    await db().from("candidates").select("id, applied_role, status, founder_decision").eq("id", candidateId).single(),
-  );
+  if (!isUuid(candidateId)) throw new Error("Unknown candidate");
+  const c = await one<CandidateLite>("select id, applied_role, status, founder_decision from candidates where id = $1", [
+    candidateId,
+  ]);
   const role = c.applied_role;
-  const total = must<{ weighted_total: number; rank_in_role: number | null; recommended: Recommendation | null } | null>(
-    await db()
-      .from("score_totals")
-      .select("weighted_total, rank_in_role, recommended")
-      .eq("candidate_id", candidateId)
-      .eq("role", role)
-      .maybeSingle(),
+  const total = await maybeOne<{ weighted_total: number; rank_in_role: number | null; recommended: Recommendation | null }>(
+    "select weighted_total, rank_in_role, recommended from score_totals where candidate_id = $1 and role = $2",
+    [candidateId, role],
   );
   if (!total) throw new Error("Candidate has not been scored yet");
-  const content = must<{ cv_text_redacted: string }>(
-    await db().from("candidate_content").select("cv_text_redacted").eq("candidate_id", candidateId).single(),
+  const content = await one<{ cv_text_redacted: string }>(
+    "select cv_text_redacted from candidate_content where candidate_id = $1",
+    [candidateId],
   );
   const scores = await scoresForPrompt(candidateId, role);
 
@@ -335,9 +314,7 @@ export async function draftFor(candidateId: string, opts: { forceEmail?: boolean
   const wantsBrief = total.recommended !== "reject" || c.founder_decision === "invite";
 
   if (wantsBrief) {
-    const existing = must<{ candidate_id: string } | null>(
-      await db().from("briefs").select("candidate_id").eq("candidate_id", candidateId).eq("role", role).maybeSingle(),
-    );
+    const existing = await maybeOne("select 1 from briefs where candidate_id = $1 and role = $2", [candidateId, role]);
     if (!existing) {
       const b = await generateBrief({
         role,
@@ -346,39 +323,34 @@ export async function draftFor(candidateId: string, opts: { forceEmail?: boolean
         weightedTotal: Number(total.weighted_total),
         rank: total.rank_in_role,
       });
-      must(
-        await db()
-          .from("briefs")
-          .upsert({ candidate_id: candidateId, role, brief_text: b.brief, probe_questions: b.probe_questions }, { onConflict: "candidate_id,role" }),
+      await query(
+        `insert into briefs (candidate_id, role, brief_text, probe_questions) values ($1, $2, $3, $4)
+         on conflict (candidate_id, role) do update set
+           brief_text = excluded.brief_text, probe_questions = excluded.probe_questions, created_at = now()`,
+        [candidateId, role, b.brief, JSON.stringify(b.probe_questions)],
       );
     }
   }
 
-  const email = must<{ id: string; email_type: EmailType; status: string; edited_by_founder: boolean } | null>(
-    await db().from("emails").select("id, email_type, status, edited_by_founder").eq("candidate_id", candidateId).eq("role", role).maybeSingle(),
+  const email = await maybeOne<{ id: string; email_type: EmailType; status: string; edited_by_founder: boolean }>(
+    "select id, email_type, status, edited_by_founder from emails where candidate_id = $1 and role = $2",
+    [candidateId, role],
   );
   if (email && (email.status === "sent" || email.status === "sending")) return;
   const regenerate =
     !email || opts.forceEmail || (!email.edited_by_founder && email.email_type !== wantType);
   if (regenerate) {
     const draft = await generateEmail({ type: wantType, role, scores });
-    must(
-      await db()
-        .from("emails")
-        .upsert(
-          {
-            candidate_id: candidateId,
-            role,
-            email_type: wantType,
-            subject: draft.subject,
-            body_with_placeholders: draft.body,
-            status: "draft",
-            error_message: null,
-            edited_by_founder: false,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "candidate_id,role" },
-        ),
+    // The WHERE on the conflict branch means a sent email can never be overwritten.
+    await query(
+      `insert into emails (candidate_id, role, email_type, subject, body_with_placeholders, status)
+       values ($1, $2, $3, $4, $5, 'draft')
+       on conflict (candidate_id, role) do update set
+         email_type = excluded.email_type, subject = excluded.subject,
+         body_with_placeholders = excluded.body_with_placeholders, status = 'draft',
+         error_message = null, edited_by_founder = false, updated_at = now()
+       where emails.status in ('draft', 'failed')`,
+      [candidateId, role, wantType, draft.subject, draft.body],
     );
   }
   if (c.status !== "sent") await setStatus(candidateId, "drafted");

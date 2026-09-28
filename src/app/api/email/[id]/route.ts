@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db, must } from "@/lib/supabase";
+import { isUuid, query } from "@/lib/db";
 
 export const runtime = "nodejs";
 
@@ -10,19 +10,13 @@ export async function PATCH(req: Request, ctx: RouteContext<"/api/email/[id]">) 
   if (typeof subject !== "string" || typeof body !== "string" || !subject.trim() || !body.trim()) {
     return NextResponse.json({ error: "Subject and body are required" }, { status: 400 });
   }
-  const rows = must<{ id: string }[]>(
-    await db()
-      .from("emails")
-      .update({
-        subject: subject.trim(),
-        body_with_placeholders: body.trim(),
-        edited_by_founder: true,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", id)
-      .in("status", ["draft", "failed"])
-      .select("id"),
-  );
+  const rows = isUuid(id)
+    ? await query<{ id: string }>(
+        `update emails set subject = $2, body_with_placeholders = $3, edited_by_founder = true, updated_at = now()
+          where id = $1 and status in ('draft', 'failed') returning id`,
+        [id, subject.trim(), body.trim()],
+      )
+    : [];
   if (!rows.length) return NextResponse.json({ error: "Email was already sent or does not exist" }, { status: 409 });
   return NextResponse.json({ ok: true });
 }
