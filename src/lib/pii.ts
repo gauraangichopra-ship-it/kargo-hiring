@@ -15,8 +15,15 @@ export type Pii = {
 const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 // Loose phone candidate; filtered by digit count below.
 const PHONE_RE = /(?:\+\s?)?\(?\d[\d\s().-]{8,18}\d/g;
-const LINK_RE =
-  /\b(?:https?:\/\/[^\s<>()|,;]+|www\.[^\s<>()|,;]+|(?:[a-z]{2,3}\.)?(?:linkedin\.com|github\.com|behance\.net|medium\.com|twitter\.com|x\.com|notion\.site)\/[^\s<>()|,;]*)/gi;
+// Any web address: http(s)://…, www.…, or a bare domain with a common TLD
+// (leetcode.com/handle, name.dev, portfolio.io/work). Emails are excluded by
+// the (?<!@) lookbehind so they are left for EMAIL_RE. Case-sensitive on purpose:
+// the TLD must be lowercase, so degrees like "B.Com" / "B.Tech" are not links.
+const LINK_TLDS = "com|in|io|net|org|dev|me|co|ai|app|site|xyz|tech|page|so|link|bio|us|uk|ly";
+const LINK_RE = new RegExp(
+  `(?<![@\\w.-])(?:[Hh][Tt][Tt][Pp][Ss]?:\\/\\/[^\\s<>()|,;]+|[Ww]{3}\\.[^\\s<>()|,;]+|(?:[A-Za-z0-9-]+\\.)+(?:${LINK_TLDS})\\b(?:\\/[^\\s<>()|,;]*)?)`,
+  "g",
+);
 
 const NOT_A_NAME =
   /^(resume|résumé|curriculum vitae|cv|profile|summary|contact|personal details|about me)$/i;
@@ -142,7 +149,14 @@ export function findLeaks(redacted: string, pii: Pii): string[] {
     for (const part of nameParts(pii.full_name)) {
       if (new RegExp(`\\b${escapeRe(part)}\\b`, "i").test(redacted)) leaks.push("name");
     }
+    // Name glued into a handle or URL: "preethamrao", "preetham_rao", "preetham.rao".
+    const parts = pii.full_name.toLowerCase().split(/\s+/).filter(Boolean);
+    if (parts.length > 1) {
+      const glued = new RegExp(parts.map(escapeRe).join("[._-]?"), "i");
+      if (glued.test(redacted)) leaks.push("name in handle");
+    }
   }
   if (new RegExp(EMAIL_RE.source, "i").test(redacted)) leaks.push("unrecognised email");
+  if (new RegExp(LINK_RE.source).test(redacted)) leaks.push("unrecognised link");
   return [...new Set(leaks)];
 }
