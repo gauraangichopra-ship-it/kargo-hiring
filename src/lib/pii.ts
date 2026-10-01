@@ -10,6 +10,8 @@ export type Pii = {
   // Every email/phone found (a CV can list more than one); all are redacted.
   allEmails: string[];
   allPhones: string[];
+  // Name tokens from the file name; redacted and leak-checked as a backstop.
+  nameHints?: string[];
 };
 
 const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
@@ -24,9 +26,6 @@ const LINK_RE = new RegExp(
   `(?<![@\\w.-])(?:[Hh][Tt][Tt][Pp][Ss]?:\\/\\/[^\\s<>()|,;]+|[Ww]{3}\\.[^\\s<>()|,;]+|(?:[A-Za-z0-9-]+\\.)+(?:${LINK_TLDS})\\b(?:\\/[^\\s<>()|,;]*)?)`,
   "g",
 );
-
-const NOT_A_NAME =
-  /^(resume|résumé|curriculum vitae|cv|profile|summary|contact|personal details|about me)$/i;
 
 const CITIES = [
   "Mumbai", "Navi Mumbai", "Thane", "Pune", "Bengaluru", "Bangalore", "Delhi", "New Delhi",
@@ -45,8 +44,8 @@ const INSTITUTION_RE = new RegExp(
   "g",
 );
 const INSTITUTION_ACRONYM_RE = new RegExp(
-  "\\b(?:IIT|IIM|NIT|IIIT|BITS|ISB|XLRI|SPJIMR|NMIMS|JBIMS|FMS|MDI|IISc|DTU|NSUT|VJTI|COEP|SRCC|LSE|INSEAD|Wharton|Stanford|Harvard|MIT)\\b" +
-    "(?:[ \\t,-]+(?:" + CITIES.join("|") + "|Bombay|Madras|Kanpur|Kharagpur|Roorkee|Guwahati|Pilani|Goa|Ahmedabad|Calcutta|Lucknow|Indore|Kozhikode|Trichy|Surathkal|Warangal))?",
+  "\\b(?:IIT|IIM|NIT|IIIT|BITS|ISB|XLRI|SPJIMR|NMIMS|JBIMS|FMS|MDI|IMT|IIFT|TISS|SIBM|SCMHRD|SIMSR|MICA|NITIE|IISER|IISc|DTU|NSUT|VJTI|COEP|SRCC|LSR|XIM|XIMB|KJSIMSR|GLIM|TAPMI|IMI|VIT|SRM|LSE|INSEAD|Wharton|Stanford|Harvard|MIT|Kellogg|Booth|Columbia|Symbiosis|Amity|Manipal(?![ \\t]+Hospital)|NIRMA|Welingkar|Narsee Monjee)\\b" +
+    "(?:[ \\t,-]+(?:" + CITIES.join("|") + "|Bombay|Madras|Kanpur|Kharagpur|Roorkee|Guwahati|Pilani|Goa|Ahmedabad|Calcutta|Lucknow|Indore|Kozhikode|Trichy|Surathkal|Warangal|Ghaziabad|Udaipur|Ranchi|Raipur|Shillong|Rohtak|Kashipur|Bhubaneswar|Jamshedpur|Manipal|Vellore|Chennai|Hyderabad|Mumbai|Delhi|Pune))?",
   "g",
 );
 
@@ -65,22 +64,77 @@ function findPhones(text: string): string[] {
   return [...new Set(out)];
 }
 
-function guessName(text: string): string | null {
-  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 8);
-  for (let raw of lines) {
-    raw = raw.replace(/^name\s*[:\-]\s*/i, "").split(/\s*[|•·,]\s*/)[0].trim();
-    if (!raw || NOT_A_NAME.test(raw)) continue;
-    if (/[@\d/]/.test(raw)) continue;
-    const words = raw.split(/\s+/);
-    if (words.length < 1 || words.length > 5) continue;
-    if (!words.every((w) => /^[A-Za-z][A-Za-z.'’-]*$/.test(w))) continue;
-    // Title-case or ALL CAPS names only; skip headings like "Product Manager".
-    if (/\b(manager|product|engineer|lead|analyst|consultant|experience|objective)\b/i.test(raw)) continue;
-    return words
-      .map((w) => (w === w.toUpperCase() && w.length > 1 ? w[0] + w.slice(1).toLowerCase() : w))
-      .join(" ");
-  }
-  return null;
+// Words that appear in CV headings / taglines / places and are never a person's name.
+const NOT_NAME_WORDS = new Set(
+  (
+    "resume curriculum vitae cv profile summary contact personal details about me education experience " +
+    "professional synopsis skills core competencies objective projects certifications certification achievements " +
+    "scholastic academic qualifications publications research languages interests hobbies awards references " +
+    "work employment history internships internship leadership responsibilities positions volunteering extracurricular " +
+    "product manager senior associate lead head director engineer analyst consultant founder cofounder co-founder " +
+    "strategy operations growth marketing sales business technology technical software data design program project " +
+    "management executive officer intern india and of the for with to in at a an cross-functional scaling across ai ml " +
+    "editor designer developer writer scientist specialist coordinator assistant trainee fellow member architect " +
+    "researcher advisor partner owner president vice chief student graduate volunteer freelance freelancer " +
+    "saas gtm platform tools key highlights selected relevant additional other"
+  ).split(" "),
+);
+for (const c of CITIES) for (const w of c.toLowerCase().split(" ")) NOT_NAME_WORDS.add(w);
+
+const titleCase = (w: string) => (w.length > 1 && w === w.toUpperCase() ? w[0] + w.slice(1).toLowerCase() : w);
+
+// A plausible "First Last" segment: 2-4 words, letters only, Title or UPPER case, no heading words.
+function nameShaped(seg: string): string | null {
+  const s = seg.replace(/^name\s*[:\-]\s*/i, "").trim();
+  if (!s || s.length > 40 || /[@\d/:]/.test(s)) return null;
+  const words = s.split(/\s+/);
+  if (words.length < 2 || words.length > 4) return null;
+  if (!words.every((w) => /^[A-Z][A-Za-z.'’-]*$/.test(w))) return null;
+  if (words.some((w) => NOT_NAME_WORDS.has(w.toLowerCase().replace(/[.'’]/g, "")))) return null;
+  return words.map(titleCase).join(" ");
+}
+
+// Name tokens suggested by the file name ("pm_03_deepika_nair.pdf" -> deepika, nair).
+export function fileNameHints(fileName?: string): string[] {
+  if (!fileName) return [];
+  return fileName
+    .replace(/\.[a-z0-9]+$/i, "")
+    .split(/[^A-Za-z]+/)
+    .map((w) => w.toLowerCase())
+    .filter((w) => w.length >= 3 && !NOT_NAME_WORDS.has(w) && !/^(cv|resume|final|updated|spm|pm|new|copy)$/.test(w));
+}
+
+// Scores every name-shaped segment in the whole CV (PDF text layers often put
+// the header block last). Prefers: file-name match, next to the email/phone
+// line, written twice ("ROHAN MEHTA  Rohan Mehta"), near the top.
+function guessName(text: string, hints: string[]): string | null {
+  const lines = text.split("\n").map((l) => l.trim());
+  const isContact = (l: string) => /@|\+?\d[\d\s-]{9,}/.test(l);
+  const contactLines = lines.map((l, i) => (isContact(l) ? i : -1)).filter((i) => i >= 0);
+  const nearContact = (i: number) => contactLines.some((c) => Math.abs(i - c) <= 2);
+  let best: { name: string; score: number } | null = null;
+  lines.forEach((line, i) => {
+    // Strip emails, phones and links first: "Kabir Mehta squad_2@x.co" -> "Kabir Mehta".
+    const cleaned = line
+      .replace(new RegExp(EMAIL_RE.source, "gi"), "\t")
+      .replace(new RegExp(LINK_RE.source, "g"), "\t")
+      .replace(/(?:\+\s?)?\(?\d[\d\s().-]{8,18}\d/g, "\t");
+    const segs = cleaned.split(/\t+|\s{3,}|\s*[|•·◦,]\s*/);
+    for (const seg of segs) {
+      const name = nameShaped(seg);
+      if (!name) continue;
+      const lower = name.toLowerCase();
+      let score = 1;
+      const matched = hints.filter((h) => lower.split(" ").includes(h)).length;
+      score += matched * 5;
+      if (nearContact(i)) score += 3;
+      if (segs.filter((x) => x.trim().toLowerCase() === lower).length >= 2) score += 3;
+      if (i < 5) score += 2;
+      if (!best || score > best.score) best = { name, score };
+    }
+  });
+  // Without any supporting signal, a lone Title Case pair is too weak to trust.
+  return best && (best as { score: number }).score >= 3 ? (best as { name: string }).name : null;
 }
 
 function guessLocation(text: string): string | null {
@@ -89,12 +143,14 @@ function guessLocation(text: string): string | null {
   return city ?? null;
 }
 
-export function extractPii(text: string): Pii {
+export function extractPii(text: string, fileName?: string): Pii {
   const allEmails = [...new Set((text.match(EMAIL_RE) ?? []).map((e) => e.trim()))];
   const allPhones = findPhones(text);
   const links = [...new Set((text.match(LINK_RE) ?? []).map((l) => l.replace(/[.)]+$/, "")))];
+  const nameHints = fileNameHints(fileName);
   return {
-    full_name: guessName(text),
+    nameHints,
+    full_name: guessName(text, nameHints),
     email: allEmails[0] ?? null,
     phone: allPhones[0] ?? null,
     location: guessLocation(text),
@@ -115,6 +171,23 @@ function phonePattern(phone: string): RegExp {
   return new RegExp(d.split("").join("[\\s().-]*"), "g");
 }
 
+// Every name token to hide: the detected name's parts plus file-name hints.
+function allNameParts(pii: Pii): string[] {
+  const parts = new Set<string>(pii.nameHints ?? []);
+  if (pii.full_name) for (const p of nameParts(pii.full_name)) parts.add(p.toLowerCase());
+  return [...parts];
+}
+
+// Handles built from the name: "rohan-mehta", "in/arjun-verma-pm", "priya_sharma".
+function handleRe(pii: Pii): RegExp | null {
+  const parts = pii.full_name ? pii.full_name.toLowerCase().split(/\s+/).filter(Boolean) : [];
+  const hints = pii.nameHints ?? [];
+  const seqs = [parts, hints].filter((p) => p.length > 1);
+  if (!seqs.length) return null;
+  const glued = seqs.map((p) => p.map(escapeRe).join("[._-]?")).join("|");
+  return new RegExp(`(?:\\b(?:in|github|gh)/)?[A-Za-z0-9._-]*(?:${glued})[A-Za-z0-9._-]*`, "gi");
+}
+
 export function redact(text: string, pii: Pii): string {
   let out = text;
   for (const e of pii.allEmails) out = out.replace(new RegExp(escapeRe(e), "gi"), "[EMAIL]");
@@ -127,13 +200,13 @@ export function redact(text: string, pii: Pii): string {
     const re = new RegExp(`(?:\\+\\s?\\d{1,3}[\\s.-]*)?\\(?${phonePattern(p).source}`, "g");
     out = out.replace(re, "[PHONE]");
   }
-  if (pii.full_name) {
-    out = out.replace(new RegExp(escapeRe(pii.full_name), "gi"), "[CANDIDATE]");
-    for (const part of nameParts(pii.full_name)) {
-      out = out.replace(new RegExp(`\\b${escapeRe(part)}\\b`, "gi"), "[CANDIDATE]");
-    }
-    out = out.replace(/\[CANDIDATE\](?:\s+\[CANDIDATE\])+/g, "[CANDIDATE]");
+  const handles = handleRe(pii);
+  if (handles) out = out.replace(handles, "[LINK]");
+  if (pii.full_name) out = out.replace(new RegExp(escapeRe(pii.full_name), "gi"), "[CANDIDATE]");
+  for (const part of allNameParts(pii)) {
+    out = out.replace(new RegExp(`\\b${escapeRe(part)}\\b`, "gi"), "[CANDIDATE]");
   }
+  out = out.replace(/\[CANDIDATE\](?:[ \t]+\[CANDIDATE\])+/g, "[CANDIDATE]");
   out = out.replace(INSTITUTION_RE, "[INSTITUTION]").replace(INSTITUTION_ACRONYM_RE, "[INSTITUTION]");
   return out;
 }
@@ -145,17 +218,13 @@ export function findLeaks(redacted: string, pii: Pii): string[] {
   for (const e of pii.allEmails) if (lower.includes(e.toLowerCase())) leaks.push("email");
   for (const l of pii.links) if (lower.includes(l.toLowerCase())) leaks.push("link");
   for (const p of pii.allPhones) if (phonePattern(p).test(redacted)) leaks.push("phone");
-  if (pii.full_name) {
-    for (const part of nameParts(pii.full_name)) {
-      if (new RegExp(`\\b${escapeRe(part)}\\b`, "i").test(redacted)) leaks.push("name");
-    }
-    // Name glued into a handle or URL: "preethamrao", "preetham_rao", "preetham.rao".
-    const parts = pii.full_name.toLowerCase().split(/\s+/).filter(Boolean);
-    if (parts.length > 1) {
-      const glued = new RegExp(parts.map(escapeRe).join("[._-]?"), "i");
-      if (glued.test(redacted)) leaks.push("name in handle");
-    }
+  for (const part of allNameParts(pii)) {
+    if (new RegExp(`\\b${escapeRe(part)}\\b`, "i").test(redacted)) leaks.push("name");
   }
+  const handles = handleRe(pii);
+  if (handles && new RegExp(handles.source, "i").test(redacted)) leaks.push("name in handle");
+  // No name found at all = we can't prove the name is gone, so don't send it.
+  if (!pii.full_name) leaks.push("name not identified");
   if (new RegExp(EMAIL_RE.source, "i").test(redacted)) leaks.push("unrecognised email");
   if (new RegExp(LINK_RE.source).test(redacted)) leaks.push("unrecognised link");
   return [...new Set(leaks)];

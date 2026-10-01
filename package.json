@@ -9,7 +9,8 @@
     "lint": "eslint",
     "seed": "tsx scripts/seed-rubric.ts",
     "typecheck": "tsc --noEmit",
-    "db:push": "tsx scripts/db-push.ts"
+    "db:push": "tsx scripts/db-push.ts",
+    "check:pii": "node --conditions=react-server --import tsx scripts/check-pii.ts"
   },
   "dependencies": {
     "@google/genai": "^2.24.0",

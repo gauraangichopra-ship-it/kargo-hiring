@@ -5,7 +5,7 @@ import { isUuid, maybeOne, one, query, tx } from "./db";
 import { generateBrief, generateEmail } from "./drafts";
 import { generateJson } from "./gemini";
 import { extractText } from "./parse";
-import { extractPii, findLeaks, redact, type Pii } from "./pii";
+import { extractPii, fileNameHints, findLeaks, redact, type Pii } from "./pii";
 import { loadRubric } from "./rubric";
 import { rankPool } from "./scoring-core";
 import { scoreForRole, type RoleScore } from "./scoring";
@@ -114,7 +114,7 @@ export async function processFile(fileName: string, buf: Buffer, appliedRole: Ro
   }
 
   // b) deterministic PII extraction
-  const pii = extractPii(text);
+  const pii = extractPii(text, fileName);
 
   // Skip duplicates: same file name + same extracted email.
   if (pii.email) {
@@ -195,8 +195,10 @@ export async function rescoreCandidate(id: string): Promise<ProcessResult> {
   if (!content || !pii || content.cv_text_redacted.startsWith("[withheld")) {
     return { status: "error", candidateId: id, error: "No safe CV text stored - upload the file again." };
   }
+  const cand = await maybeOne<{ file_name: string }>("select file_name from candidates where id = $1", [id]);
   const leaks = findLeaks(content.cv_text_redacted, {
     ...pii,
+    nameHints: fileNameHints(cand?.file_name),
     links: (pii.links as string[]) ?? [],
     allEmails: pii.email ? [pii.email] : [],
     allPhones: pii.phone ? [pii.phone] : [],
