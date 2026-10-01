@@ -1,6 +1,19 @@
 import "server-only";
+import * as canvas from "@napi-rs/canvas";
 import mammoth from "mammoth";
-import { PDFParse } from "pdf-parse";
+
+// pdf.js expects browser graphics globals. Serverless Node (Vercel) doesn't
+// have them, so provide them from @napi-rs/canvas *before* pdf-parse loads.
+// The static import above also makes Vercel's file tracing ship the package.
+const g = globalThis as Record<string, unknown>;
+g.DOMMatrix ??= canvas.DOMMatrix;
+g.ImageData ??= canvas.ImageData;
+g.Path2D ??= canvas.Path2D;
+
+async function loadPdfParse() {
+  const { PDFParse } = await import("pdf-parse");
+  return PDFParse;
+}
 
 export const ACCEPTED_EXTENSIONS = [".pdf", ".docx", ".txt"];
 
@@ -9,6 +22,7 @@ export async function extractText(fileName: string, buf: Buffer): Promise<string
   const ext = fileName.toLowerCase().slice(fileName.lastIndexOf("."));
   let text: string;
   if (ext === ".pdf") {
+    const PDFParse = await loadPdfParse();
     const parser = new PDFParse({ data: buf });
     try {
       text = (await parser.getText()).text;

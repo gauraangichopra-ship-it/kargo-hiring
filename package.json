@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@google/genai": "^2.24.0",
+    "@napi-rs/canvas": "^0.1.80",
     "@neon/config": "^1.8.2",
     "@neon/env": "^1.4.7",
     "@neondatabase/serverless": "^1.1.0",
