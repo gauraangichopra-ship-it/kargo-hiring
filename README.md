@@ -110,9 +110,20 @@ Before doing that: verify your own domain in Resend and set `RESEND_FROM_EMAIL` 
 
 ## Deploy (Vercel)
 
-1. `git push` to GitHub.
-2. Import the repo in Vercel and add every env var from the table above (copy `DATABASE_URL` from `.env.local`, or connect the Neon integration in Vercel).
-3. Deploy. Visit `/api/health` on the live URL.
+Live: https://kargo-hiring-rho.vercel.app (password-protected: any username, password = `APP_PASSWORD`).
+Code: https://github.com/gauraangichopra-ship-it/kargo-hiring (private).
+
+The Vercel project is connected to the GitHub repo, so **every `git push` to `main` redeploys production automatically**.
+
+Environment variables live in Vercel → Project → Settings → Environment Variables. To add one from the CLI:
+
+```bash
+npx vercel env add RESEND_API_KEY production
+```
+
+then push (or run `npx vercel deploy --prod`) so it takes effect. Paste values without surrounding quotes.
+
+First-time setup on a new Vercel project: import the repo, add every env var from the table above, deploy, then open `/api/health` on the live URL.
 
 ## Notes
 
