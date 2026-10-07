@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kargo Components Map</title>
+<style>
+  :root { --navy:#14223f; --ink:#1c2b28; --line:#2c3e66; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:#fff; font-family:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif; color:var(--ink); }
+  .wrap { width:1800px; padding:36px 28px 28px; }
+  h1 { text-align:center; margin:0 0 6px; font-size:34px; color:var(--navy); letter-spacing:-.3px; }
+  .sub { text-align:center; margin:0 0 22px; font-size:17px; color:#5b6e69; }
+  .grid { position:relative; display:grid; grid-template-columns:190px repeat(6, 1fr); grid-template-rows:64px repeat(4, 190px); border-radius:10px; overflow:hidden; }
+  .hd { background:var(--navy); color:#fff; display:flex; align-items:center; justify-content:center; font-size:20px; font-weight:600; border-right:1px solid #2a3a5e; }
+  .actor { background:var(--navy); color:#fff; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:21px; font-weight:700; border-top:1px solid #2a3a5e; }
+  .actor small { font-weight:400; font-size:15px; opacity:.8; margin-top:4px; }
+  .cell { border-right:1px solid #ececf3; border-top:1px solid #ececf3; }
+  .r1 { background:#eaf2fd; } .r2 { background:#fefbea; } .r3 { background:#ecf8ef; } .r4 { background:#fdeef3; }
+  .box { position:absolute; border-radius:10px; border:2px solid; padding:10px 12px; font-size:16.5px; line-height:1.35; display:flex; align-items:center; justify-content:center; text-align:center; background:#fff; z-index:2; }
+  .box b { display:block; margin-bottom:2px; }
+  .purple { border-color:#5b5bd6; background:#e9e8fd; } .blue { border-color:#3b7bd8; background:#e6f0fd; }
+  .green { border-color:#3bb54a; background:#e6f7e8; } .orange { border-color:#f0a020; background:#fff2d6; }
+  .pink { border-color:#e0409a; background:#fde6f2; } .red { border-color:#e2533f; background:#ffe6e1; }
+  .gate { border-color:#14403a; background:#14403a; color:#fff; }
+  svg.arrows { position:absolute; inset:0; z-index:1; pointer-events:none; }
+  .legend { display:flex; gap:28px; justify-content:center; margin-top:18px; font-size:15px; color:#44524f; }
+  .legend span::before { content:""; display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:7px; vertical-align:-1px; }
+  .l1::before { background:#14403a; } .l2::before { background:#e6f7e8; border:2px solid #3bb54a; } .l3::before { border-top:2px dashed #2c3e66; width:22px!important; height:0!important; border-radius:0!important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Case 2 · Kargo Hiring Dashboard — Components Map</h1>
+  <p class="sub">The system ranks and explains. Arjun decides. Nothing is sent without his click.</p>
+
+  <div class="grid" id="grid">
+    <div class="hd">Actor</div><div class="hd">Trigger</div><div class="hd">Input</div><div class="hd">Context</div><div class="hd">Processing</div><div class="hd">AI</div><div class="hd">Output</div>
+
+    <div class="actor">Founder<small>(Arjun)</small></div>
+    <div class="cell r1"></div><div class="cell r1"></div><div class="cell r1"></div><div class="cell r1"></div><div class="cell r1"></div><div class="cell r1"></div>
+
+    <div class="actor">System<small>(Next.js · Neon)</small></div>
+    <div class="cell r2"></div><div class="cell r2"></div><div class="cell r2"></div><div class="cell r2"></div><div class="cell r2"></div><div class="cell r2"></div>
+
+    <div class="actor">AI Model<small>(Gemini Flash-Lite)</small></div>
+    <div class="cell r3"></div><div class="cell r3"></div><div class="cell r3"></div><div class="cell r3"></div><div class="cell r3"></div><div class="cell r3"></div>
+
+    <div class="actor">Email<small>(Resend)</small></div>
+    <div class="cell r4"></div><div class="cell r4"></div><div class="cell r4"></div><div class="cell r4"></div><div class="cell r4"></div><div class="cell r4"></div>
+
+    <!-- columns: x starts 190, each col ≈ 263px; rows: y starts 64, each 190px -->
+    <div class="box purple" style="left:205px; top:104px; width:233px; height:110px;"><div><b>Uploads CVs</b>picks applied role (PM / SPM) for the batch</div></div>
+    <div class="box blue"   style="left:468px; top:104px; width:233px; height:110px;"><div><b>CV file + role</b>PDF · DOCX · TXT, up to 60 at once</div></div>
+
+    <div class="box green"  style="left:731px; top:270px; width:233px; height:160px;"><div><b>Extract &amp; protect</b>code removes name, email, phone, links, colleges → stores them apart in Neon. Leak check: <i>no AI call if anything is left</i></div></div>
+    <div class="box orange" style="left:979px; top:270px; width:236px; height:160px;"><div><b>Rubric from best hires</b>loads rubric.txt criteria · checks every quote is in the CV · weighted total &amp; rank <i>computed in code</i></div></div>
+
+    <div class="box pink"   style="left:1238px; top:430px; width:236px; height:170px;"><div><b>Scores · brief · draft</b>0–5 per criterion with evidence quote (PM &amp; SPM) · 3-sentence brief · invite / rejection draft with [NAME]</div></div>
+
+    <div class="box red"    style="left:1497px; top:84px; width:236px; height:150px;"><div><b>Ranked dashboard</b>scores, evidence, brief, probe questions, editable draft · top 5 + “review once” line</div></div>
+    <div class="box gate"   style="left:1497px; top:254px; width:236px; height:84px;"><div><b>🔒 Human gate</b>Arjun clicks Confirm &amp; Send</div></div>
+
+    <div class="box blue"   style="left:1497px; top:660px; width:236px; height:110px;"><div><b>Sends via Resend</b>fills real name · never twice · “sent ✓” back on dashboard</div></div>
+
+    <svg class="arrows" viewBox="0 0 1744 824" preserveAspectRatio="none" width="1744" height="824">
+      <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#2c3e66"/></marker></defs>
+      <g fill="none" stroke="#2c3e66" stroke-width="2.2" stroke-dasharray="7 5" marker-end="url(#a)">
+        <path d="M438,159 L466,159"/>
+        <path d="M701,159 L716,159 L716,350 L729,350"/>
+        <path d="M964,350 L977,350"/>
+        <path d="M1215,350 L1356,350 L1356,428"/>
+        <path d="M1474,515 L1486,515 L1486,159 L1495,159"/>
+        <path d="M1615,234 L1615,252"/>
+        <path d="M1615,338 L1615,658"/>
+      </g>
+    </svg>
+  </div>
+
+  <div class="legend"><span class="l1">Human decision point</span><span class="l2">Privacy step (code, not AI)</span><span class="l3">Data flow</span></div>
+</div>
+</body>
+</html>
